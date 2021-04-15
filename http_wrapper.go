@@ -17,8 +17,8 @@ import (
 var (
   // command-line options:
   // gRPC server endpoint
-  grpc_server_hostport =  fmt.Sprintf("localhost:%s", os.Args[1])
-  rest_server_hostport =  fmt.Sprintf(":%s", os.Args[2])
+  grpc_server_hostport =  fmt.Sprintf("%s:%s", os.Args[1], os.Args[2])
+  rest_server_hostport =  fmt.Sprintf(":%s", os.Args[3])
   grpcServerEndpoint = flag.String("grpc-server-endpoint",  grpc_server_hostport, "gRPC server endpoint")
 )
 

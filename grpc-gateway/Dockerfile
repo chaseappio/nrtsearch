@@ -93,4 +93,4 @@ RUN for GOOS in darwin linux windows; do \
     done; \
 done
 
-CMD /bin/sh
+CMD /code/bin/http_wrapper-linux-386 nrtsearch 6000 6002

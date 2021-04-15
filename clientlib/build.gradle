@@ -8,7 +8,7 @@ plugins {
     // Publish clientlib to maven central
     id 'maven-publish'
     id 'signing'
-    id "com.diffplug.gradle.spotless"
+    // id "com.diffplug.gradle.spotless"
 }
 
 repositories {
@@ -171,12 +171,12 @@ publishing {
     }
 }
 
-spotless {
-    java {
-        licenseHeaderFile '../license_header'
-        removeUnusedImports()
-        endWithNewline()
-        trimTrailingWhitespace()
-        googleJavaFormat()
-    }
-}
+// spotless {
+//     java {
+//         licenseHeaderFile '../license_header'
+//         removeUnusedImports()
+//         endWithNewline()
+//         trimTrailingWhitespace()
+//         googleJavaFormat()
+//     }
+// }

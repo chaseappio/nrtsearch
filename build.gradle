@@ -240,15 +240,15 @@ publishing {
     }
 }
 
-spotless {
-    java {
-        licenseHeaderFile 'license_header'
-        removeUnusedImports()
-        endWithNewline()
-        trimTrailingWhitespace()
-        googleJavaFormat()
-    }
-}
+// spotless {
+//     java {
+//         licenseHeaderFile 'license_header'
+//         removeUnusedImports()
+//         endWithNewline()
+//         trimTrailingWhitespace()
+//         googleJavaFormat()
+//     }
+// }
 
 // Inject properties file containing the project version into resources.
 // Used to get version info at runtime.
