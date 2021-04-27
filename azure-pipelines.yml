@@ -24,6 +24,7 @@ stages:
        steps:
          - template: version.yml@templates          
 
+
   - stage: push
     condition: "succeeded()"
     jobs:             
@@ -39,11 +40,6 @@ stages:
       - job: github_release
         steps:
           - template: github_release.yml@templates
-        dependsOn: publish_pulumi
-      - job: publish_pulumi
-        steps:
-          - template: pulumi_publish.yml@templates
-
   # - stage: dev
   #   condition: and(succeeded('finish'), in(variables['Build.SourceBranch'], 'refs/heads/dev')) 
   #   jobs:
