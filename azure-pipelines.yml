@@ -25,7 +25,7 @@ stages:
          - template: version.yml@templates          
 
   - stage: push
-    condition: "and(succeeded())"
+    condition: "succeeded()"
     jobs:             
       - job: dockerizing_nrtsearch
         steps:
