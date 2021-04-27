@@ -5,6 +5,7 @@ pr:
       - "master"
       - "release/*"
       - "sprint/*"
+      - "POC/*"
       
 pool: vmssagentpool
       
