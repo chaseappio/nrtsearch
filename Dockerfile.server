@@ -22,8 +22,17 @@ ENV BINPATH /code/bin
 COPY / ${BASEPATH}/
 WORKDIR  $BASEPATH
 
+COPY ./src /build/src
+COPY ./clientlib /build/clientlib
+COPY ./gradle ./gradlew ./*.gradle /build/
+
 ENV JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF8
 RUN ./gradlew clean && ./gradlew installDist
+
+RUN mkdir -p /root/lucene/server/plugins/
+COPY ./plugin_defs/ /root/lucene/server/plugins/
+RUN mkdir -p /root/lucene/server/plugins/chaseplugin/ && cp /code/build/libs/* /root/lucene/server/plugins/chaseplugin/
+COPY ./chase_server_config.yaml /root/lucene/server/config.yaml
 
 RUN mkdir /go
 ENV GOPATH /go
@@ -93,4 +102,4 @@ RUN for GOOS in linux; do \
     done; \
 done
 
-ENTRYPOINT [ "/code/bin/http_wrapper-linux-amd64" ] 
+ENTRYPOINT ["/bin/bash", "-c", "/code/bin/http_wrapper-linux-amd64 6000 6002 & /code/build/install/nrtsearch/bin/lucene-server /root/lucene/server/config.yaml"]
