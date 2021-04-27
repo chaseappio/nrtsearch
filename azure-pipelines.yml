@@ -1,0 +1,69 @@
+pr:
+  branches:
+    include:
+      - "dev"
+      - "master"
+      - "release/*"
+      - "sprint/*"
+      
+pool: vmssagentpool
+      
+resources:
+  repositories:
+    - repository: templates
+      type: github
+      name: chaseappio/devops-ci-templates
+      ref: refs/heads/master
+      endpoint: chaseappio
+
+stages:
+  - stage: prepare
+    jobs: 
+     - job: version
+       steps:
+         - template: version.yml@templates          
+
+  - stage: push
+    condition: "and(succeeded())"
+    jobs:             
+      - job: dockerizing_nrtsearch
+        steps:
+          - template: docker.yml@templates
+            parameters:
+              dockerfile_path: ./Dockerfile
+              image_name: yelp-nrtsearch
+
+  - stage: finish
+    jobs:
+      - job: github_release
+        steps:
+          - template: github_release.yml@templates
+        dependsOn: publish_pulumi
+      - job: publish_pulumi
+        steps:
+          - template: pulumi_publish.yml@templates
+
+  # - stage: dev
+  #   condition: and(succeeded('finish'), in(variables['Build.SourceBranch'], 'refs/heads/dev')) 
+  #   jobs:
+  #     - template: deployment-azure.yml@templates
+  #       parameters:
+  #         environment: dev
+  #         stack_name: authenticator.dev
+
+  # - stage: staging
+  #   condition: and(succeeded('finish'), startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')) 
+  #   jobs:
+  #     - template: deployment-azure.yml@templates
+  #       parameters:
+  #         environment: staging
+  #         stack_name: authenticator.staging
+
+  # - stage: production
+  #   condition: and(succeeded('finish'), eq(variables['Build.SourceBranch'], 'refs/heads/master'))  
+  #   jobs:
+  #     - template: deployment-azure.yml@templates
+  #       parameters:
+  #         environment: production
+  #         stack_name: authenticator.production
+        
