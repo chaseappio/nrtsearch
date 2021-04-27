@@ -17,6 +17,9 @@ resources:
       ref: refs/heads/master
       endpoint: chaseappio
 
+variables:  
+- template: vars.yml@templates
+
 stages:
   - stage: prepare
     jobs: 
