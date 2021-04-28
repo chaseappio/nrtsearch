@@ -41,7 +41,6 @@ stages:
               buildContext: $(Build.SourcesDirectory)
               arguments: '--tag app_image'
               
-
           - task: ECRPushImage@1
             condition: "succeeded()"
             displayName: Push Image To ECR
@@ -53,6 +52,25 @@ stages:
               pushTag: '$(Build.BuildNumber)'
               repositoryName: yelp-nrtsearch
               autoCreateRepository: true
+          
+          - task: Bash@3
+            displayName: Tag Image for ACR
+            condition: "succeeded()"
+            inputs:
+              targetType: inline
+              script: |   
+                set -e
+                docker tag yelp-nrtsearch:${BUILD_BUILDNUMBER} ${ACR_REGISTRY_URL}/yelp-nrtsearch:${BUILD_BUILDNUMBER} 
+
+          - task: Docker@2
+            condition: "succeeded()"
+            displayName: Push Image To ACR
+            inputs:
+              command: push
+              containerRegistry: '$(acr_service_connection)'
+              repository: yelp-nrtsearch
+              tags: |
+                $(Build.BuildNumber)
 
           - task: ECRPushImage@1
             condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/master'))
@@ -65,6 +83,25 @@ stages:
               pushTag: latest
               repositoryName: yelp-nrtsearch
               autoCreateRepository: true
+          
+          - task: Bash@3
+            displayName: Tag Latest Image for ACR
+            condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/master'))
+            inputs:
+              targetType: inline
+              script: |   
+                set -e
+                docker tag yelp-nrtsearch:${BUILD_BUILDNUMBER} ${ACR_REGISTRY_URL}/yelp-nrtsearch:latest       
+          
+          - task: Docker@2
+            condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/master'))
+            displayName: Push Latest Image To ACR
+            inputs:
+              command: push
+              containerRegistry: '$(acr_service_connection)'
+              repository: yelp-nrtsearch
+              tags: |
+                latest
 
           - task: ECRPushImage@1
             condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/dev'))
@@ -77,6 +114,25 @@ stages:
               pushTag: dev
               repositoryName: yelp-nrtsearch
               autoCreateRepository: true      
+          
+          - task: Bash@3
+            displayName: Tag Dev Image for ACR
+            condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/dev'))
+            inputs:
+              targetType: inline
+              script: |   
+                set -e
+                docker tag yelp-nrtsearch:${BUILD_BUILDNUMBER} ${ACR_REGISTRY_URL}/yelp-nrtsearch:dev             
+                
+          - task: Docker@2
+            condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/dev'))
+            displayName: Push Dev Image To ACR
+            inputs:
+              command: push
+              containerRegistry: '$(acr_service_connection)'
+              repository: yelp-nrtsearch
+              tags: |
+                dev
 
           - task: Bash@3
             displayName: Write repoistory policy to a file
