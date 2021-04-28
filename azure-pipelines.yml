@@ -33,128 +33,67 @@ stages:
     jobs:             
       - job: dockerizing_nrtsearch
         steps:
-        - task: Docker@2
-          displayName: Build The Base Image
-          inputs: 
-            command: build
-            Dockerfile: ./Dockerfile
-            arguments: '--target base --tag base_image'
+          - task: Docker@2
+            displayName: Build The Base Image
+            inputs: 
+              command: build
+              Dockerfile: ./Dockerfile
+              buildContext: $(Build.SourcesDirectory)
+              arguments: '--tag app_image'
+              
 
-        - task: Bash@3
-          displayName: Setting Variables
-          condition: "succeeded()"
-          inputs:
-            targetType: inline
-            script: |
-              PROJECT_PATH=`dirname ./Dockerfile`
-              echo "##vso[task.setvariable variable=project_path;]$PROJECT_PATH"
-              echo "##vso[task.setvariable variable=image_name;]yelp-nrtsearch"
-          env: 
-            DOCKERFILE_PATH: ./Dockerfile
-            IMAGE_NAME: yelp-nrtsearch
+          - task: ECRPushImage@1
+            condition: "succeeded()"
+            displayName: Push Image To ECR
+            inputs:
+              awsCredentials: '$(ecr_service)'
+              regionName: 'us-east-1'
+              imageSource: 'imagename'
+              sourceImageName: 'app_image'
+              pushTag: '$(Build.BuildNumber)'
+              repositoryName: yelp-nrtsearch
+              autoCreateRepository: true
 
-        - task: Bash@3
-          displayName: Signing The Base Image With Build Artifacts
-          condition: "succeeded()"
-          inputs:
-            targetType: inline
-            script: | 
-              COMMAND="docker create --name base_container base_image"
-              echo "##[command]$COMMAND"
-              $COMMAND
-              FRAMEWORK=`ls $(project_path)/bin/Release`
-              RELEASE_DIR="$(project_path)/bin/Release/${FRAMEWORK}"
-              PUBLISH_DIR="$RELEASE_DIR/publish"
-              if [ -d $PUBLISH_DIR ] 
-              then
-                RELEASE_DIR=$PUBLISH_DIR
-              fi
-              COMMAND="docker cp $RELEASE_DIR/. base_container:/app"
-              echo "##[command]$COMMAND"
-              $COMMAND
-              COMMAND="docker commit base_container final_image"
-              echo "##[command]$COMMAND"
-              $COMMAND
-        - task: ECRPushImage@1
-          condition: "succeeded()"
-          displayName: Push Image To ECR
-          inputs:
-            awsCredentials: '$(ecr_service)'
-            regionName: 'us-east-1'
-            imageSource: 'imagename'
-            sourceImageName: 'final_image'
-            pushTag: '$(Build.BuildNumber)'
-            repositoryName: 'yelp-nrtsearch'
-            autoCreateRepository: true
+          - task: ECRPushImage@1
+            condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/master'))
+            displayName: Push Image To ECR
+            inputs:
+              awsCredentials: '$(ecr_service)'
+              regionName: 'us-east-1'
+              imageSource: 'imagename'
+              sourceImageName: 'app_image'
+              pushTag: latest
+              repositoryName: yelp-nrtsearch
+              autoCreateRepository: true
 
-        - task: ECRPushImage@1
-          condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/master'))
-          displayName: Push Image To ECR
-          inputs:
-            awsCredentials: '$(ecr_service)'
-            regionName: 'us-east-1'
-            imageSource: 'imagename'
-            sourceImageName: 'final_image'
-            pushTag: latest
-            repositoryName: 'yelp-nrtsearch'
-            autoCreateRepository: true
+          - task: ECRPushImage@1
+            condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/dev'))
+            displayName: Push Image To ECR
+            inputs:
+              awsCredentials: '$(ecr_service)'
+              regionName: 'us-east-1'
+              imageSource: 'imagename'
+              sourceImageName: 'app_image'
+              pushTag: dev
+              repositoryName: yelp-nrtsearch
+              autoCreateRepository: true      
 
-        - task: ECRPushImage@1
-          condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/dev'))
-          displayName: Push Image To ECR
-          inputs:
-            awsCredentials: '$(ecr_service)'
-            regionName: 'us-east-1'
-            imageSource: 'imagename'
-            sourceImageName: 'final_image'
-            pushTag: dev
-            repositoryName: 'yelp-nrtsearch'
-            autoCreateRepository: true      
-
-        - task: Bash@3
-          displayName: Write repoistory policy to a file
-          condition: "succeeded()"
-          inputs:
-            targetType: inline
-            script: | 
-              POLICY='{"Version":"2008-10-17","Statement":[{"Sid":"allowpublicpull","Effect":"Allow","Principal":{ "AWS":[ "arn:aws:iam::264604750251:root","arn:aws:iam::733818552769:root"]},"Action":["ecr:BatchCheckLayerAvailability","ecr:BatchGetImage","ecr:GetDownloadUrlForLayer"]}]}'
-              echo $POLICY > policy.json
-        - task: AWSCLI@1
-          displayName: Set Image Permissions
-          condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/master'))
-          inputs:
-            awsCredentials: '$(ecr_service)'
-            regionName: 'us-east-1'
-            awsCommand: 'ecr'
-            awsSubCommand: 'set-repository-policy'
-            awsArguments: '--repository-name yelp-nrtsearch --policy-text file://policy.json'
-
-  - stage: finish
-    jobs:
-      - job: github_release
-        steps:
-          - template: github_release.yml@templates
-  # - stage: dev
-  #   condition: and(succeeded('finish'), in(variables['Build.SourceBranch'], 'refs/heads/dev')) 
-  #   jobs:
-  #     - template: deployment-azure.yml@templates
-  #       parameters:
-  #         environment: dev
-  #         stack_name: authenticator.dev
-
-  # - stage: staging
-  #   condition: and(succeeded('finish'), startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')) 
-  #   jobs:
-  #     - template: deployment-azure.yml@templates
-  #       parameters:
-  #         environment: staging
-  #         stack_name: authenticator.staging
-
-  # - stage: production
-  #   condition: and(succeeded('finish'), eq(variables['Build.SourceBranch'], 'refs/heads/master'))  
-  #   jobs:
-  #     - template: deployment-azure.yml@templates
-  #       parameters:
-  #         environment: production
-  #         stack_name: authenticator.production
+          - task: Bash@3
+            displayName: Write repoistory policy to a file
+            condition: "succeeded()"
+            inputs:
+              targetType: inline
+              script: | 
+                POLICY='{"Version":"2008-10-17","Statement":[{"Sid":"allowpublicpull","Effect":"Allow","Principal":{ "AWS":[ "arn:aws:iam::264604750251:root","arn:aws:iam::733818552769:root"]},"Action":["ecr:BatchCheckLayerAvailability","ecr:BatchGetImage","ecr:GetDownloadUrlForLayer"]}]}'
+                echo $POLICY > policy.json
+          
+          - task: AWSCLI@1
+            displayName: Set Image Permissions
+            condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/master'))
+            inputs:
+              awsCredentials: '$(ecr_service)'
+              regionName: 'us-east-1'
+              awsCommand: 'ecr'
+              awsSubCommand: 'set-repository-policy'      
+              awsArguments: '--repository-name yelp-nrtsearch --policy-text file://policy.json'
         
