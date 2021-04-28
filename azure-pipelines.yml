@@ -60,7 +60,7 @@ stages:
               targetType: inline
               script: |   
                 set -e
-                docker tag yelp-nrtsearch:${BUILD_BUILDNUMBER} ${ACR_REGISTRY_URL}/yelp-nrtsearch:${BUILD_BUILDNUMBER} 
+                docker tag app_image ${ACR_REGISTRY_URL}/yelp-nrtsearch:${BUILD_BUILDNUMBER} 
 
           - task: Docker@2
             condition: "succeeded()"
@@ -91,7 +91,7 @@ stages:
               targetType: inline
               script: |   
                 set -e
-                docker tag yelp-nrtsearch:${BUILD_BUILDNUMBER} ${ACR_REGISTRY_URL}/yelp-nrtsearch:latest       
+                docker tag app_image ${ACR_REGISTRY_URL}/yelp-nrtsearch:latest       
           
           - task: Docker@2
             condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/master'))
@@ -122,7 +122,7 @@ stages:
               targetType: inline
               script: |   
                 set -e
-                docker tag yelp-nrtsearch:${BUILD_BUILDNUMBER} ${ACR_REGISTRY_URL}/yelp-nrtsearch:dev             
+                docker tag app_image ${ACR_REGISTRY_URL}/yelp-nrtsearch:dev             
                 
           - task: Docker@2
             condition: and(succeeded(),eq(variables['build.sourceBranch'], 'refs/heads/dev'))
