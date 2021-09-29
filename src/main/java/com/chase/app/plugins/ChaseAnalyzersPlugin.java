@@ -32,6 +32,7 @@ import com.chase.app.analyzers.TextStemmingAnalyzer;
 import com.chase.app.analyzers.TypeAggressiveDelimitionAnalyzer;
 import com.chase.app.analyzers.TypeLiteDelimitionAnalyzer;
 import com.chase.app.analyzers.TypePrefixAnalyzer;
+import com.chase.app.analyzers.TreePathHierarchyAnalyzer;
 import com.yelp.nrtsearch.server.config.LuceneServerConfiguration;
 import com.yelp.nrtsearch.server.luceneserver.analysis.AnalysisProvider;
 import com.yelp.nrtsearch.server.plugins.AnalysisPlugin;
