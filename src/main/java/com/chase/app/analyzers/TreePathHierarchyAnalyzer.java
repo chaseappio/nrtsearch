@@ -20,8 +20,8 @@ import org.apache.lucene.analysis.Analyzer.TokenStreamComponents;
 import org.apache.lucene.analysis.path.PathHierarchyTokenizer;
 
 public class TreePathHierarchyAnalyzer extends Analyzer {
-    @Override
-    protected TokenStreamComponents createComponents(String fieldName) {
-        return new TokenStreamComponents(new PathHierarchyTokenizer('\u0019', '\u0019'));
-    }
+  @Override
+  protected TokenStreamComponents createComponents(String fieldName) {
+    return new TokenStreamComponents(new PathHierarchyTokenizer('\u0019', '\u0019'));
+  }
 }
