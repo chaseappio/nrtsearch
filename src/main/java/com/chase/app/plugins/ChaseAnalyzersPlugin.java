@@ -29,6 +29,7 @@ import com.chase.app.analyzers.TextPrefixAnalyzer;
 import com.chase.app.analyzers.TextPrefixSearchAnalyzer;
 import com.chase.app.analyzers.TextShingleAnalyzer;
 import com.chase.app.analyzers.TextStemmingAnalyzer;
+import com.chase.app.analyzers.TreePathHierarchyAnalyzer;
 import com.chase.app.analyzers.TypeAggressiveDelimitionAnalyzer;
 import com.chase.app.analyzers.TypeLiteDelimitionAnalyzer;
 import com.chase.app.analyzers.TypePrefixAnalyzer;
@@ -144,6 +145,13 @@ public class ChaseAnalyzersPlugin extends Plugin implements AnalysisPlugin {
         new AnalysisProvider<TextStemmingAnalyzer>() {
           public TextStemmingAnalyzer get(String name) {
             return new TextStemmingAnalyzer();
+          }
+        });
+    map.put(
+        "treePathHierarchy",
+        new AnalysisProvider<TreePathHierarchyAnalyzer>() {
+          public TreePathHierarchyAnalyzer get(String name) {
+            return new TreePathHierarchyAnalyzer();
           }
         });
     map.put(
