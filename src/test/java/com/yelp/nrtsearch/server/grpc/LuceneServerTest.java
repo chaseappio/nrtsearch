@@ -26,12 +26,12 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.protobuf.Empty;
 import com.yelp.nrtsearch.server.LuceneServerTestConfigurationFactory;
+import com.yelp.nrtsearch.server.backup.Archiver;
+import com.yelp.nrtsearch.server.backup.ArchiverImpl;
+import com.yelp.nrtsearch.server.backup.TarImpl;
 import com.yelp.nrtsearch.server.config.LuceneServerConfiguration;
 import com.yelp.nrtsearch.server.grpc.SearchResponse.Hit.CompositeFieldValue;
 import com.yelp.nrtsearch.server.luceneserver.GlobalState;
-import com.yelp.nrtsearch.server.utils.Archiver;
-import com.yelp.nrtsearch.server.utils.ArchiverImpl;
-import com.yelp.nrtsearch.server.utils.TarImpl;
 import io.findify.s3mock.S3Mock;
 import io.grpc.StatusRuntimeException;
 import io.grpc.testing.GrpcCleanupRule;
@@ -51,6 +51,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.hamcrest.core.IsCollectionContaining;
@@ -990,9 +992,11 @@ public class LuceneServerTest {
                   .build());
       fail("Expecting exception on the previous line");
     } catch (StatusRuntimeException e) {
-      assertEquals(
-          "UNKNOWN: Unable to backup warming queries since uptime is 0 minutes, which is less than threshold 1000",
-          e.getMessage());
+      Pattern pattern =
+          Pattern.compile(
+              "UNKNOWN: Unable to backup warming queries since uptime is [0-9] minutes, which is less than threshold 1000");
+      Matcher m = pattern.matcher(e.getMessage());
+      assertTrue(m.matches());
     }
 
     // Should fail; does not meet NumQueriesThreshold

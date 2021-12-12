@@ -24,12 +24,12 @@ import com.amazonaws.auth.AnonymousAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.yelp.nrtsearch.server.LuceneServerTestConfigurationFactory;
+import com.yelp.nrtsearch.server.backup.Archiver;
+import com.yelp.nrtsearch.server.backup.ArchiverImpl;
+import com.yelp.nrtsearch.server.backup.Tar;
+import com.yelp.nrtsearch.server.backup.TarImpl;
 import com.yelp.nrtsearch.server.config.LuceneServerConfiguration;
 import com.yelp.nrtsearch.server.luceneserver.GlobalState;
-import com.yelp.nrtsearch.server.utils.Archiver;
-import com.yelp.nrtsearch.server.utils.ArchiverImpl;
-import com.yelp.nrtsearch.server.utils.Tar;
-import com.yelp.nrtsearch.server.utils.TarImpl;
 import io.findify.s3mock.S3Mock;
 import io.grpc.testing.GrpcCleanupRule;
 import java.io.IOException;
@@ -491,5 +491,24 @@ public class ReplicationServerTest {
     LuceneServerTest.checkHits(firstHit);
     SearchResponse.Hit secondHit = searchResponse.getHits(1);
     LuceneServerTest.checkHits(secondHit);
+  }
+
+  @Test
+  public void testAddDocumentsOnReplicaFailure() throws IOException, InterruptedException {
+    // startIndex primary
+    GrpcServer.TestServer testServerPrimary =
+        new GrpcServer.TestServer(luceneServerPrimary, true, Mode.PRIMARY);
+
+    // startIndex replica
+    GrpcServer.TestServer testServerReplica =
+        new GrpcServer.TestServer(luceneServerSecondary, true, Mode.REPLICA);
+    testServerReplica.addDocuments();
+    assertEquals(false, testServerReplica.completed);
+    assertEquals(true, testServerReplica.error);
+    assertTrue(
+        testServerReplica
+            .throwable
+            .getMessage()
+            .contains("Adding documents to an index on a replica node is not supported"));
   }
 }

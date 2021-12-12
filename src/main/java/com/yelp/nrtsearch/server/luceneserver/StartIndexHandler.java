@@ -15,12 +15,12 @@
  */
 package com.yelp.nrtsearch.server.luceneserver;
 
+import com.yelp.nrtsearch.server.backup.Archiver;
 import com.yelp.nrtsearch.server.grpc.Mode;
 import com.yelp.nrtsearch.server.grpc.ReplicationServerClient;
 import com.yelp.nrtsearch.server.grpc.RestoreIndex;
 import com.yelp.nrtsearch.server.grpc.StartIndexRequest;
 import com.yelp.nrtsearch.server.grpc.StartIndexResponse;
-import com.yelp.nrtsearch.server.utils.Archiver;
 import com.yelp.nrtsearch.server.utils.FileUtil;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -37,12 +37,23 @@ public class StartIndexHandler implements Handler<StartIndexRequest, StartIndexR
   }
 
   private final Archiver archiver;
+  private final Archiver incArchiver;
   private final String archiveDirectory;
+  private final boolean backupFromIncArchiver;
+  private final boolean restoreFromIncArchiver;
   Logger logger = LoggerFactory.getLogger(StartIndexHandler.class);
 
-  public StartIndexHandler(Archiver archiver, String archiveDirectory) {
+  public StartIndexHandler(
+      Archiver archiver,
+      Archiver incArchiver,
+      String archiveDirectory,
+      boolean backupFromIncArchiver,
+      boolean restoreFromIncArchiver) {
     this.archiver = archiver;
+    this.incArchiver = incArchiver;
     this.archiveDirectory = archiveDirectory;
+    this.backupFromIncArchiver = backupFromIncArchiver;
+    this.restoreFromIncArchiver = restoreFromIncArchiver;
   }
 
   @Override
@@ -73,7 +84,8 @@ public class StartIndexHandler implements Handler<StartIndexRequest, StartIndexR
                 downloadArtifact(
                     restoreIndex.getServiceName(),
                     restoreIndex.getResourceName(),
-                    INDEXED_DATA_TYPE.DATA);
+                    INDEXED_DATA_TYPE.DATA,
+                    restoreFromIncArchiver);
             shardState.setRestored(true);
           } else {
             throw new IllegalStateException("Index " + indexState.name + " already restored");
@@ -103,7 +115,8 @@ public class StartIndexHandler implements Handler<StartIndexRequest, StartIndexR
       if (mode.equals(Mode.PRIMARY)) {
         shardState.startPrimary(primaryGen, dataPath);
         BackupIndexRequestHandler backupIndexRequestHandler =
-            new BackupIndexRequestHandler(archiver, archiveDirectory);
+            new BackupIndexRequestHandler(
+                archiver, incArchiver, archiveDirectory, backupFromIncArchiver);
         if (backupIndexRequestHandler.wasBackupPotentiallyInterrupted()) {
           if (backupIndexRequestHandler.getIndexNameOfInterruptedBackup().equals(indexState.name)) {
             backupIndexRequestHandler.interruptedBackupCleanup(
@@ -155,8 +168,15 @@ public class StartIndexHandler implements Handler<StartIndexRequest, StartIndexR
     FileUtil.deleteAllFiles(Paths.get(archiveDirectory, resourceDataDirectory));
   }
 
+  /**
+   * Returns: path to "current" dir containing symlink to point to versionHash dirName that contains
+   * index data
+   */
   public Path downloadArtifact(
-      String serviceName, String resourceName, INDEXED_DATA_TYPE indexDataType) {
+      String serviceName,
+      String resourceName,
+      INDEXED_DATA_TYPE indexDataType,
+      boolean disableLegacyArchiver) {
     String resource;
     if (indexDataType.equals(INDEXED_DATA_TYPE.DATA)) {
       resource = IndexBackupUtils.getResourceData(resourceName);
@@ -166,19 +186,13 @@ public class StartIndexHandler implements Handler<StartIndexRequest, StartIndexR
       throw new RuntimeException("Invalid INDEXED_DATA_TYPE " + indexDataType);
     }
     try {
-      return archiver.download(serviceName, resource);
+      if (!disableLegacyArchiver) {
+        return archiver.download(serviceName, resource);
+      } else {
+        return incArchiver.download(serviceName, resource);
+      }
     } catch (IOException e) {
       throw new RuntimeException(e);
-    }
-  }
-
-  public static class RestorePathInfo {
-    public final Path dataPath;
-    public final Path metadataPath;
-
-    RestorePathInfo(Path dataPath, Path metadataPath) {
-      this.dataPath = dataPath;
-      this.metadataPath = metadataPath;
     }
   }
 

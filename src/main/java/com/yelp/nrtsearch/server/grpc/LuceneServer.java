@@ -25,6 +25,7 @@ import com.google.common.collect.Sets;
 import com.google.inject.Guice;
 import com.google.inject.Inject;
 import com.google.inject.Injector;
+import com.google.inject.name.Named;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Empty;
@@ -32,6 +33,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.util.JsonFormat;
 import com.yelp.nrtsearch.LuceneServerModule;
 import com.yelp.nrtsearch.server.MetricsRequestHandler;
+import com.yelp.nrtsearch.server.backup.Archiver;
 import com.yelp.nrtsearch.server.config.LuceneServerConfiguration;
 import com.yelp.nrtsearch.server.config.QueryCacheConfig;
 import com.yelp.nrtsearch.server.luceneserver.*;
@@ -47,7 +49,6 @@ import com.yelp.nrtsearch.server.monitoring.*;
 import com.yelp.nrtsearch.server.monitoring.ThreadPoolCollector.RejectionCounterWrapper;
 import com.yelp.nrtsearch.server.plugins.Plugin;
 import com.yelp.nrtsearch.server.plugins.PluginsService;
-import com.yelp.nrtsearch.server.utils.Archiver;
 import com.yelp.nrtsearch.server.utils.ThreadPoolExecutorFactory;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
@@ -55,6 +56,7 @@ import io.grpc.ServerInterceptors;
 import io.grpc.Status;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.protobuf.services.ProtoReflectionService;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import io.prometheus.client.CollectorRegistry;
 import io.prometheus.client.hotspot.DefaultExports;
@@ -79,6 +81,7 @@ public class LuceneServer {
   private static final Logger logger = LoggerFactory.getLogger(LuceneServer.class.getName());
   private static final Splitter COMMA_SPLITTER = Splitter.on(",");
   private final Archiver archiver;
+  private final Archiver incArchiver;
   private final CollectorRegistry collectorRegistry;
   private final PluginsService pluginsService;
 
@@ -89,21 +92,22 @@ public class LuceneServer {
   @Inject
   public LuceneServer(
       LuceneServerConfiguration luceneServerConfiguration,
-      Archiver archiver,
+      @Named("legacyArchiver") Archiver archiver,
+      @Named("incArchiver") Archiver incArchiver,
       CollectorRegistry collectorRegistry) {
     this.luceneServerConfiguration = luceneServerConfiguration;
     this.archiver = archiver;
+    this.incArchiver = incArchiver;
     this.collectorRegistry = collectorRegistry;
     this.pluginsService = new PluginsService(luceneServerConfiguration);
   }
 
   private void start() throws IOException {
-    GlobalState globalState = new GlobalState(luceneServerConfiguration);
+    GlobalState globalState = new GlobalState(luceneServerConfiguration, incArchiver);
 
     registerMetrics();
 
     List<Plugin> plugins = pluginsService.loadPlugins();
-
     String serviceName = luceneServerConfiguration.getServiceName();
     String nodeName = luceneServerConfiguration.getNodeName();
 
@@ -111,7 +115,11 @@ public class LuceneServer {
       logger.info("Loading state for any previously backed up indexes");
       List<String> indexes =
           RestoreStateHandler.restore(
-              archiver, globalState, luceneServerConfiguration.getServiceName());
+              archiver,
+              incArchiver,
+              globalState,
+              luceneServerConfiguration.getServiceName(),
+              luceneServerConfiguration.getRestoreFromIncArchiver());
       for (String index : indexes) {
         logger.info("Loaded state for index " + index);
       }
@@ -133,6 +141,7 @@ public class LuceneServer {
                         globalState,
                         luceneServerConfiguration,
                         archiver,
+                        incArchiver,
                         collectorRegistry,
                         plugins),
                     monitoringInterceptor))
@@ -142,6 +151,8 @@ public class LuceneServer {
                     ThreadPoolExecutorFactory.ExecutorType.LUCENESERVER,
                     luceneServerConfiguration.getThreadPoolConfiguration()))
             .maxInboundMessageSize(MAX_MESSAGE_BYTES_SIZE)
+            .compressorRegistry(LuceneServerStubBuilder.COMPRESSOR_REGISTRY)
+            .decompressorRegistry(LuceneServerStubBuilder.DECOMPRESSOR_REGISTRY)
             .build()
             .start();
     logger.info(
@@ -258,8 +269,14 @@ public class LuceneServer {
     @Override
     public Integer call() throws Exception {
       Injector injector = Guice.createInjector(new LuceneServerModule(this));
-      LuceneServer luceneServer = injector.getInstance(LuceneServer.class);
-      luceneServer.start();
+      LuceneServer luceneServer;
+      try {
+        luceneServer = injector.getInstance(LuceneServer.class);
+        luceneServer.start();
+      } catch (Throwable t) {
+        logger.error("Uncaught exception", t);
+        throw t;
+      }
       luceneServer.blockUntilShutdown();
       return 0;
     }
@@ -270,21 +287,28 @@ public class LuceneServer {
         JsonFormat.printer().omittingInsignificantWhitespace();
     private final GlobalState globalState;
     private final Archiver archiver;
+    private final Archiver incArchiver;
     private final CollectorRegistry collectorRegistry;
     private final ThreadPoolExecutor searchThreadPoolExecutor;
     private final String archiveDirectory;
+    private final boolean backupFromIncArchiver;
+    private final boolean restoreFromIncArchiver;
 
     LuceneServerImpl(
         GlobalState globalState,
         LuceneServerConfiguration configuration,
         Archiver archiver,
+        Archiver incArchiver,
         CollectorRegistry collectorRegistry,
         List<Plugin> plugins) {
       this.globalState = globalState;
       this.archiver = archiver;
+      this.incArchiver = incArchiver;
       this.archiveDirectory = configuration.getArchiveDirectory();
       this.collectorRegistry = collectorRegistry;
       this.searchThreadPoolExecutor = globalState.getSearchThreadPoolExecutor();
+      this.backupFromIncArchiver = configuration.getBackupWithInArchiver();
+      this.restoreFromIncArchiver = configuration.getRestoreFromIncArchiver();
 
       initQueryCache(configuration);
       initExtendableComponents(configuration, plugins);
@@ -309,6 +333,28 @@ public class LuceneServer {
       RescorerCreator.initialize(configuration, plugins);
       ScriptService.initialize(configuration, plugins);
       SimilarityCreator.initialize(configuration, plugins);
+    }
+
+    /**
+     * Set response compression on the provided {@link StreamObserver}. Should be a valid
+     * compression type from the {@link LuceneServerStubBuilder#COMPRESSOR_REGISTRY}, or empty
+     * string for default. Falls back to uncompressed on any error.
+     *
+     * @param compressionType compression type, or empty string
+     * @param responseObserver observer to set compression on
+     */
+    private void setResponseCompression(
+        String compressionType, StreamObserver<?> responseObserver) {
+      if (!compressionType.isEmpty()) {
+        try {
+          ServerCallStreamObserver<?> serverCallStreamObserver =
+              (ServerCallStreamObserver<?>) responseObserver;
+          serverCallStreamObserver.setCompression(compressionType);
+        } catch (Exception e) {
+          logger.warn(
+              "Unable to set response compression to type '" + compressionType + "' : " + e);
+        }
+      }
     }
 
     @Override
@@ -508,7 +554,13 @@ public class LuceneServer {
         StartIndexRequest startIndexRequest, StreamObserver<StartIndexResponse> responseObserver) {
       try {
         IndexState indexState = null;
-        StartIndexHandler startIndexHandler = new StartIndexHandler(archiver, archiveDirectory);
+        StartIndexHandler startIndexHandler =
+            new StartIndexHandler(
+                archiver,
+                incArchiver,
+                archiveDirectory,
+                backupFromIncArchiver,
+                restoreFromIncArchiver);
         indexState =
             globalState.getIndex(startIndexRequest.getIndexName(), startIndexRequest.hasRestore());
         StartIndexResponse reply = startIndexHandler.handle(indexState, startIndexRequest);
@@ -769,7 +821,7 @@ public class LuceneServer {
             () -> {
               try {
                 IndexState indexState = globalState.getIndex(commitRequest.getIndexName());
-                long gen = indexState.commit();
+                long gen = indexState.commit(backupFromIncArchiver);
                 CommitResponse reply =
                     CommitResponse.newBuilder()
                         .setGen(gen)
@@ -862,6 +914,8 @@ public class LuceneServer {
         SearchRequest searchRequest, StreamObserver<SearchResponse> searchResponseStreamObserver) {
       try {
         IndexState indexState = globalState.getIndex(searchRequest.getIndexName());
+        setResponseCompression(
+            searchRequest.getResponseCompression(), searchResponseStreamObserver);
         SearchHandler searchHandler = new SearchHandler(searchThreadPoolExecutor);
         SearchResponse reply = searchHandler.handle(indexState, searchRequest);
         searchResponseStreamObserver.onNext(reply);
@@ -907,6 +961,8 @@ public class LuceneServer {
         SearchRequest searchRequest, StreamObserver<Any> searchResponseStreamObserver) {
       try {
         IndexState indexState = globalState.getIndex(searchRequest.getIndexName());
+        setResponseCompression(
+            searchRequest.getResponseCompression(), searchResponseStreamObserver);
         SearchHandler searchHandler = new SearchHandler(searchThreadPoolExecutor);
         SearchResponse reply = searchHandler.handle(indexState, searchRequest);
         searchResponseStreamObserver.onNext(Any.pack(reply));
@@ -1315,7 +1371,8 @@ public class LuceneServer {
       try {
         IndexState indexState = globalState.getIndex(backupIndexRequest.getIndexName());
         BackupIndexRequestHandler backupIndexRequestHandler =
-            new BackupIndexRequestHandler(archiver, archiveDirectory);
+            new BackupIndexRequestHandler(
+                archiver, incArchiver, archiveDirectory, backupFromIncArchiver);
         BackupIndexResponse reply =
             backupIndexRequestHandler.handle(indexState, backupIndexRequest);
         logger.info(String.format("BackupRequestHandler returned results %s", reply.toString()));
